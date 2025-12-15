@@ -4,9 +4,16 @@
   <meta charset="UTF-8">
   <title>画像一覧メーカー</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
   <style>
-    body { font-family: sans-serif; padding: 20px; }
-    .controls { margin-bottom: 20px; }
+    body {
+      font-family: sans-serif;
+      padding: 20px;
+    }
+
+    .controls {
+      margin-bottom: 20px;
+    }
 
     #image-list {
       display: grid;
@@ -16,23 +23,32 @@
 
     .item {
       border: 1px solid #ccc;
-      padding: 5px;
+      padding: 6px;
       background: #f9f9f9;
-      cursor: grab;
-    }
-
-    .item.dragging {
-      opacity: 0.4;
     }
 
     .item.hidden {
       opacity: 0.4;
     }
 
+    .drag-handle {
+      cursor: grab;
+      text-align: center;
+      font-size: 18px;
+      background: #e0e0e0;
+      margin-bottom: 4px;
+      user-select: none;
+    }
+
+    .item.dragging {
+      opacity: 0.4;
+    }
+
     .item img {
       width: 100%;
-      height: 100px;
-      object-fit: cover;
+      height: auto; /* 縦横比を保持 */
+      display: block;
+      margin-bottom: 4px;
     }
 
     canvas {
@@ -61,6 +77,7 @@
 </div>
 
 <div id="image-list"></div>
+
 <canvas id="canvas"></canvas>
 
 <script>
@@ -68,15 +85,18 @@ const filesInput = document.getElementById("files");
 const list = document.getElementById("image-list");
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
+
 const colsInput = document.getElementById("cols");
 const gapInput = document.getElementById("gap");
 const generateBtn = document.getElementById("generate");
 const downloadBtn = document.getElementById("download");
 
 const SIZE = 200;
+
 let images = [];
 let dragIndex = null;
 
+/* === 画像追加 === */
 filesInput.onchange = () => {
   for (const file of filesInput.files) {
     images.push({
@@ -89,18 +109,21 @@ filesInput.onchange = () => {
   filesInput.value = "";
 };
 
+/* === 一覧描画 === */
 function renderList() {
   list.innerHTML = "";
+
   images.forEach((img, i) => {
     const div = document.createElement("div");
     div.className = "item" + (img.visible ? "" : " hidden");
-    div.draggable = true;
     div.dataset.i = i;
 
     div.innerHTML = `
+      <div class="drag-handle" title="ドラッグして並び替え">⇅</div>
       <img src="${img.url}">
-      枚数:
-      <input type="number" min="1" value="${img.count}" data-act="count" data-i="${i}">
+      枚数：
+      <input type="number" min="1" value="${img.count}"
+             data-act="count" data-i="${i}">
       <br>
       <button data-act="toggle" data-i="${i}">
         ${img.visible ? "非表示" : "表示"}
@@ -109,20 +132,36 @@ function renderList() {
       <button data-act="down" data-i="${i}">↓</button>
       <button data-act="del" data-i="${i}">削除</button>
     `;
+
+    const handle = div.querySelector(".drag-handle");
+    handle.draggable = true;
+
+    handle.addEventListener("dragstart", () => {
+      dragIndex = i;
+      div.classList.add("dragging");
+    });
+
+    handle.addEventListener("dragend", () => {
+      div.classList.remove("dragging");
+    });
+
     list.appendChild(div);
   });
 }
 
-list.onchange = (e) => {
+/* === 枚数変更 === */
+list.addEventListener("change", (e) => {
   if (e.target.dataset.act === "count") {
     const i = Number(e.target.dataset.i);
     images[i].count = Math.max(1, Number(e.target.value));
   }
-};
+});
 
-list.onclick = (e) => {
+/* === ボタン操作 === */
+list.addEventListener("click", (e) => {
   const act = e.target.dataset.act;
   if (!act) return;
+
   const i = Number(e.target.dataset.i);
 
   if (act === "del") images.splice(i, 1);
@@ -133,33 +172,25 @@ list.onclick = (e) => {
     [images[i], images[i + 1]] = [images[i + 1], images[i]];
 
   renderList();
-};
+});
 
 /* === ドラッグ並び替え === */
-list.addEventListener("dragstart", (e) => {
-  dragIndex = Number(e.target.closest(".item").dataset.i);
-  e.target.classList.add("dragging");
-});
-
-list.addEventListener("dragend", (e) => {
-  e.target.classList.remove("dragging");
-});
-
 list.addEventListener("dragover", (e) => {
   e.preventDefault();
-  const target = e.target.closest(".item");
-  if (!target) return;
+  const item = e.target.closest(".item");
+  if (!item) return;
 
-  const targetIndex = Number(target.dataset.i);
-  if (dragIndex === targetIndex) return;
+  const targetIndex = Number(item.dataset.i);
+  if (dragIndex === null || dragIndex === targetIndex) return;
 
-  const dragged = images.splice(dragIndex, 1)[0];
-  images.splice(targetIndex, 0, dragged);
+  const moved = images.splice(dragIndex, 1)[0];
+  images.splice(targetIndex, 0, moved);
   dragIndex = targetIndex;
+
   renderList();
 });
 
-/* === 生成 === */
+/* === 画像生成 === */
 generateBtn.onclick = async () => {
   const cols = Number(colsInput.value);
   const GAP = Number(gapInput.value);
@@ -175,15 +206,17 @@ generateBtn.onclick = async () => {
   const rows = Math.ceil(output.length / cols);
   canvas.width = cols * (SIZE + GAP) - GAP;
   canvas.height = rows * (SIZE + GAP) - GAP;
+
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   for (let i = 0; i < output.length; i++) {
-    const img = new Image();
-    img.src = output[i];
-    await img.decode();
+    const image = new Image();
+    image.src = output[i];
+    await image.decode();
+
     const x = (i % cols) * (SIZE + GAP);
     const y = Math.floor(i / cols) * (SIZE + GAP);
-    ctx.drawImage(img, x, y, SIZE, SIZE);
+    ctx.drawImage(image, x, y, SIZE, SIZE);
   }
 };
 
