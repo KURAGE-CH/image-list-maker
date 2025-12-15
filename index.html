@@ -2,17 +2,17 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>画像一覧メーカー（自動詰め）</title>
+  <title>画像一覧メーカー（横枚数指定）</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
   <style>
-    body {
-      font-family: sans-serif;
-      padding: 20px;
-    }
+    body { font-family: sans-serif; padding: 20px; }
+    .controls { margin-bottom: 20px; }
 
-    .controls {
-      margin-bottom: 20px;
+    #error {
+      color: red;
+      margin-top: 10px;
+      display: none;
     }
 
     #image-list {
@@ -25,10 +25,6 @@
       border: 1px solid #ccc;
       padding: 6px;
       background: #f9f9f9;
-    }
-
-    .item.hidden {
-      opacity: 0.4;
     }
 
     .drag-handle {
@@ -55,33 +51,25 @@
 </head>
 <body>
 
-<h1>画像一覧メーカー（自動詰め配置）</h1>
+<h1>画像一覧メーカー（横枚数指定）</h1>
 
 <div class="controls">
   <input type="file" id="files" multiple accept="image/*"><br><br>
 
-  キャンバスサイズ：
-  <select id="preset">
-    <option value="">手動</option>
-    <option value="a4p">A4 縦</option>
-    <option value="a4l">A4 横</option>
-    <option value="b5p">B5 縦</option>
-    <option value="b5l">B5 横</option>
-    <option value="phone">スマホ（9:16）</option>
-  </select>
-
-  幅：
+  キャンバス幅：
   <input type="number" id="cw" value="2480"> px
-  高さ：
-  <input type="number" id="ch" value="3508"> px
 
-  <br><br>
-  行間・画像間隔：
+  横に並べる枚数：
+  <input type="number" id="cols" value="3" min="1">
+
+  間隔：
   <input type="number" id="gap" value="10" min="0"> px
 
   <br><br>
   <button id="generate">一覧画像を生成</button>
   <button id="download">PNG保存</button>
+
+  <div id="error"></div>
 </div>
 
 <div id="image-list"></div>
@@ -93,32 +81,19 @@ const list = document.getElementById("image-list");
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 
-const presetSelect = document.getElementById("preset");
 const cwInput = document.getElementById("cw");
-const chInput = document.getElementById("ch");
+const colsInput = document.getElementById("cols");
 const gapInput = document.getElementById("gap");
+const errorBox = document.getElementById("error");
 
 const generateBtn = document.getElementById("generate");
 const downloadBtn = document.getElementById("download");
 
+const MIN_HEIGHT = 80;
+const MAX_HEIGHT = 800;
+
 let images = [];
 let dragIndex = null;
-
-/* === プリセット === */
-presetSelect.onchange = () => {
-  const presets = {
-    a4p: [2480, 3508],
-    a4l: [3508, 2480],
-    b5p: [1760, 2480],
-    b5l: [2480, 1760],
-    phone: [1080, 1920]
-  };
-  const v = presetSelect.value;
-  if (presets[v]) {
-    cwInput.value = presets[v][0];
-    chInput.value = presets[v][1];
-  }
-};
 
 /* === 画像追加 === */
 filesInput.onchange = () => {
@@ -138,7 +113,7 @@ function renderList() {
   list.innerHTML = "";
   images.forEach((img, i) => {
     const div = document.createElement("div");
-    div.className = "item" + (img.visible ? "" : " hidden");
+    div.className = "item";
     div.dataset.i = i;
 
     div.innerHTML = `
@@ -147,48 +122,25 @@ function renderList() {
       枚数：
       <input type="number" min="1" value="${img.count}" data-i="${i}">
       <br>
-      <button data-act="toggle" data-i="${i}">
-        ${img.visible ? "非表示" : "表示"}
-      </button>
       <button data-act="del" data-i="${i}">削除</button>
     `;
 
     const handle = div.querySelector(".drag-handle");
     handle.draggable = true;
-
-    handle.addEventListener("dragstart", () => {
-      dragIndex = i;
-    });
+    handle.addEventListener("dragstart", () => dragIndex = i);
 
     list.appendChild(div);
   });
 }
 
-/* === 編集操作 === */
-list.onchange = (e) => {
-  if (e.target.type === "number") {
-    const i = Number(e.target.dataset.i);
-    images[i].count = Math.max(1, Number(e.target.value));
-  }
-};
-
-list.onclick = (e) => {
-  const act = e.target.dataset.act;
-  if (!act) return;
-  const i = Number(e.target.dataset.i);
-
-  if (act === "del") images.splice(i, 1);
-  if (act === "toggle") images[i].visible = !images[i].visible;
-  renderList();
-};
-
+/* === 並び替え === */
 list.ondragover = (e) => {
   e.preventDefault();
   const item = e.target.closest(".item");
   if (!item) return;
 
   const target = Number(item.dataset.i);
-  if (dragIndex === null || dragIndex === target) return;
+  if (dragIndex === target) return;
 
   const moved = images.splice(dragIndex, 1)[0];
   images.splice(target, 0, moved);
@@ -196,51 +148,64 @@ list.ondragover = (e) => {
   renderList();
 };
 
-/* === 自動詰めレイアウト生成 === */
+/* === 生成処理 === */
 generateBtn.onclick = async () => {
-  const GAP = Number(gapInput.value);
-  const CW = Number(cwInput.value);
-  const CH = Number(chInput.value);
+  errorBox.style.display = "none";
 
-  canvas.width = CW;
-  canvas.height = CH;
-  ctx.clearRect(0, 0, CW, CH);
+  const CW = Number(cwInput.value);
+  const COLS = Number(colsInput.value);
+  const GAP = Number(gapInput.value);
 
   const expanded = [];
   images.forEach(img => {
-    if (!img.visible) return;
     for (let i = 0; i < img.count; i++) expanded.push(img.url);
   });
 
+  canvas.width = CW;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
   let y = 0;
-  let row = [];
-  let rowAspect = 0;
 
-  for (let i = 0; i < expanded.length; i++) {
-    const image = new Image();
-    image.src = expanded[i];
-    await image.decode();
+  for (let i = 0; i < expanded.length; i += COLS) {
+    const rowUrls = expanded.slice(i, i + COLS);
+    const rowImgs = [];
 
-    const aspect = image.width / image.height;
-    row.push(image);
-    rowAspect += aspect;
-
-    const rowHeight = (CW - GAP * (row.length - 1)) / rowAspect;
-
-    if (y + rowHeight > CH) break;
-
-    if (rowHeight < 300 || i === expanded.length - 1) {
-      let x = 0;
-      row.forEach(img => {
-        const w = rowHeight * (img.width / img.height);
-        ctx.drawImage(img, x, y, w, rowHeight);
-        x += w + GAP;
-      });
-      y += rowHeight + GAP;
-      row = [];
-      rowAspect = 0;
+    for (const url of rowUrls) {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      rowImgs.push(img);
     }
+
+    const totalAspect = rowImgs.reduce(
+      (sum, img) => sum + img.width / img.height, 0
+    );
+
+    const rowHeight =
+      (CW - GAP * (rowImgs.length - 1)) / totalAspect;
+
+    if (
+      rowHeight <= 0 ||
+      rowHeight < MIN_HEIGHT ||
+      rowHeight > MAX_HEIGHT
+    ) {
+      errorBox.textContent =
+        "この設定では画像を配置できません（横枚数・間隔・幅を調整してください）";
+      errorBox.style.display = "block";
+      return;
+    }
+
+    let x = 0;
+    rowImgs.forEach(img => {
+      const w = rowHeight * (img.width / img.height);
+      ctx.drawImage(img, x, y, w, rowHeight);
+      x += w + GAP;
+    });
+
+    y += rowHeight + GAP;
   }
+
+  canvas.height = y - GAP;
 };
 
 /* === PNG保存 === */
