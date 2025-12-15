@@ -3,14 +3,43 @@
 <head>
   <meta charset="UTF-8">
   <title>画像一覧メーカー</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     body {
       font-family: sans-serif;
       padding: 20px;
     }
-    canvas {
+
+    .controls {
+      margin-bottom: 20px;
+    }
+
+    #image-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, 120px);
+      gap: 10px;
+    }
+
+    .item {
       border: 1px solid #ccc;
-      margin-top: 20px;
+      padding: 5px;
+      text-align: center;
+      background: #f9f9f9;
+    }
+
+    .item img {
+      width: 100%;
+      height: 100px;
+      object-fit: cover;
+    }
+
+    .buttons button {
+      margin: 2px;
+    }
+
+    canvas {
+      margin-top: 30px;
+      border: 1px solid #ccc;
       max-width: 100%;
     }
   </style>
@@ -19,54 +48,95 @@
 
 <h1>画像一覧メーカー</h1>
 
-<p>画像を複数選択すると、自動で一覧画像を作ります。</p>
+<div class="controls">
+  <input type="file" id="files" multiple accept="image/*">
+  <br><br>
+  横の枚数：
+  <input type="number" id="cols" value="5" min="1">
+  <button id="generate">一覧画像を生成</button>
+</div>
 
-<input type="file" id="files" multiple accept="image/*">
-
-<br>
-
-<button id="download">画像を保存</button>
-
-<br>
+<div id="image-list"></div>
 
 <canvas id="canvas"></canvas>
 
 <script>
-const fileInput = document.getElementById("files");
+const filesInput = document.getElementById("files");
+const list = document.getElementById("image-list");
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
-const downloadBtn = document.getElementById("download");
+const colsInput = document.getElementById("cols");
+const generateBtn = document.getElementById("generate");
 
-const SIZE = 200; // サムネ1枚の大きさ
-const COLS = 5;   // 横に並べる枚数
-const GAP = 10;   // 余白
+const SIZE = 200;
+const GAP = 10;
 
-fileInput.onchange = async () => {
-  const files = [...fileInput.files];
-  if (files.length === 0) return;
+let images = [];
 
-  const rows = Math.ceil(files.length / COLS);
-  canvas.width = COLS * (SIZE + GAP) - GAP;
+filesInput.onchange = () => {
+  for (const file of filesInput.files) {
+    images.push({
+      url: URL.createObjectURL(file)
+    });
+  }
+  renderList();
+  filesInput.value = "";
+};
+
+function renderList() {
+  list.innerHTML = "";
+  images.forEach((img, i) => {
+    const div = document.createElement("div");
+    div.className = "item";
+    div.innerHTML = `
+      <img src="${img.url}">
+      <div class="buttons">
+        <button data-act="up" data-i="${i}">↑</button>
+        <button data-act="down" data-i="${i}">↓</button>
+        <button data-act="del" data-i="${i}">削除</button>
+      </div>
+    `;
+    list.appendChild(div);
+  });
+}
+
+list.onclick = (e) => {
+  const btn = e.target;
+  if (!btn.dataset.act) return;
+
+  const i = Number(btn.dataset.i);
+
+  if (btn.dataset.act === "del") {
+    images.splice(i, 1);
+  }
+  if (btn.dataset.act === "up" && i > 0) {
+    [images[i], images[i - 1]] = [images[i - 1], images[i]];
+  }
+  if (btn.dataset.act === "down" && i < images.length - 1) {
+    [images[i], images[i + 1]] = [images[i + 1], images[i]];
+  }
+
+  renderList();
+};
+
+generateBtn.onclick = async () => {
+  const cols = Number(colsInput.value);
+  const rows = Math.ceil(images.length / cols);
+
+  canvas.width = cols * (SIZE + GAP) - GAP;
   canvas.height = rows * (SIZE + GAP) - GAP;
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  for (let i = 0; i < files.length; i++) {
+  for (let i = 0; i < images.length; i++) {
     const img = new Image();
-    img.src = URL.createObjectURL(files[i]);
+    img.src = images[i].url;
     await img.decode();
 
-    const x = (i % COLS) * (SIZE + GAP);
-    const y = Math.floor(i / COLS) * (SIZE + GAP);
+    const x = (i % cols) * (SIZE + GAP);
+    const y = Math.floor(i / cols) * (SIZE + GAP);
     ctx.drawImage(img, x, y, SIZE, SIZE);
   }
-};
-
-downloadBtn.onclick = () => {
-  const a = document.createElement("a");
-  a.href = canvas.toDataURL("image/png");
-  a.download = "image-list.png";
-  a.click();
 };
 </script>
 
