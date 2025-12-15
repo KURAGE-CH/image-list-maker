@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>画像一覧メーカー</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 20px;
+    }
+    canvas {
+      border: 1px solid #ccc;
+      margin-top: 20px;
+      max-width: 100%;
+    }
+  </style>
+</head>
+<body>
+
+<h1>画像一覧メーカー</h1>
+
+<p>画像を複数選択すると、自動で一覧画像を作ります。</p>
+
+<input type="file" id="files" multiple accept="image/*">
+
+<br>
+
+<button id="download">画像を保存</button>
+
+<br>
+
+<canvas id="canvas"></canvas>
+
+<script>
+const fileInput = document.getElementById("files");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const downloadBtn = document.getElementById("download");
+
+const SIZE = 200; // サムネ1枚の大きさ
+const COLS = 5;   // 横に並べる枚数
+const GAP = 10;   // 余白
+
+fileInput.onchange = async () => {
+  const files = [...fileInput.files];
+  if (files.length === 0) return;
+
+  const rows = Math.ceil(files.length / COLS);
+  canvas.width = COLS * (SIZE + GAP) - GAP;
+  canvas.height = rows * (SIZE + GAP) - GAP;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  for (let i = 0; i < files.length; i++) {
+    const img = new Image();
+    img.src = URL.createObjectURL(files[i]);
+    await img.decode();
+
+    const x = (i % COLS) * (SIZE + GAP);
+    const y = Math.floor(i / COLS) * (SIZE + GAP);
+    ctx.drawImage(img, x, y, SIZE, SIZE);
+  }
+};
+
+downloadBtn.onclick = () => {
+  const a = document.createElement("a");
+  a.href = canvas.toDataURL("image/png");
+  a.download = "image-list.png";
+  a.click();
+};
+</script>
+
+</body>
+</html>
