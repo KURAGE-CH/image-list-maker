@@ -5,36 +5,34 @@
   <title>画像一覧メーカー</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    body {
-      font-family: sans-serif;
-      padding: 20px;
-    }
-
-    .controls {
-      margin-bottom: 20px;
-    }
+    body { font-family: sans-serif; padding: 20px; }
+    .controls { margin-bottom: 20px; }
 
     #image-list {
       display: grid;
-      grid-template-columns: repeat(auto-fill, 120px);
+      grid-template-columns: repeat(auto-fill, 150px);
       gap: 10px;
     }
 
     .item {
       border: 1px solid #ccc;
       padding: 5px;
-      text-align: center;
       background: #f9f9f9;
+      cursor: grab;
+    }
+
+    .item.dragging {
+      opacity: 0.4;
+    }
+
+    .item.hidden {
+      opacity: 0.4;
     }
 
     .item img {
       width: 100%;
       height: 100px;
       object-fit: cover;
-    }
-
-    .buttons button {
-      margin: 2px;
     }
 
     canvas {
@@ -49,15 +47,20 @@
 <h1>画像一覧メーカー</h1>
 
 <div class="controls">
-  <input type="file" id="files" multiple accept="image/*">
-  <br><br>
+  <input type="file" id="files" multiple accept="image/*"><br><br>
+
   横の枚数：
   <input type="number" id="cols" value="5" min="1">
+
+  画像の間隔：
+  <input type="number" id="gap" value="10" min="0">
+
+  <br><br>
   <button id="generate">一覧画像を生成</button>
+  <button id="download">PNG保存</button>
 </div>
 
 <div id="image-list"></div>
-
 <canvas id="canvas"></canvas>
 
 <script>
@@ -66,17 +69,20 @@ const list = document.getElementById("image-list");
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 const colsInput = document.getElementById("cols");
+const gapInput = document.getElementById("gap");
 const generateBtn = document.getElementById("generate");
+const downloadBtn = document.getElementById("download");
 
 const SIZE = 200;
-const GAP = 10;
-
 let images = [];
+let dragIndex = null;
 
 filesInput.onchange = () => {
   for (const file of filesInput.files) {
     images.push({
-      url: URL.createObjectURL(file)
+      url: URL.createObjectURL(file),
+      visible: true,
+      count: 1
     });
   }
   renderList();
@@ -87,56 +93,106 @@ function renderList() {
   list.innerHTML = "";
   images.forEach((img, i) => {
     const div = document.createElement("div");
-    div.className = "item";
+    div.className = "item" + (img.visible ? "" : " hidden");
+    div.draggable = true;
+    div.dataset.i = i;
+
     div.innerHTML = `
       <img src="${img.url}">
-      <div class="buttons">
-        <button data-act="up" data-i="${i}">↑</button>
-        <button data-act="down" data-i="${i}">↓</button>
-        <button data-act="del" data-i="${i}">削除</button>
-      </div>
+      枚数:
+      <input type="number" min="1" value="${img.count}" data-act="count" data-i="${i}">
+      <br>
+      <button data-act="toggle" data-i="${i}">
+        ${img.visible ? "非表示" : "表示"}
+      </button>
+      <button data-act="up" data-i="${i}">↑</button>
+      <button data-act="down" data-i="${i}">↓</button>
+      <button data-act="del" data-i="${i}">削除</button>
     `;
     list.appendChild(div);
   });
 }
 
+list.onchange = (e) => {
+  if (e.target.dataset.act === "count") {
+    const i = Number(e.target.dataset.i);
+    images[i].count = Math.max(1, Number(e.target.value));
+  }
+};
+
 list.onclick = (e) => {
-  const btn = e.target;
-  if (!btn.dataset.act) return;
+  const act = e.target.dataset.act;
+  if (!act) return;
+  const i = Number(e.target.dataset.i);
 
-  const i = Number(btn.dataset.i);
-
-  if (btn.dataset.act === "del") {
-    images.splice(i, 1);
-  }
-  if (btn.dataset.act === "up" && i > 0) {
+  if (act === "del") images.splice(i, 1);
+  if (act === "toggle") images[i].visible = !images[i].visible;
+  if (act === "up" && i > 0)
     [images[i], images[i - 1]] = [images[i - 1], images[i]];
-  }
-  if (btn.dataset.act === "down" && i < images.length - 1) {
+  if (act === "down" && i < images.length - 1)
     [images[i], images[i + 1]] = [images[i + 1], images[i]];
-  }
 
   renderList();
 };
 
+/* === ドラッグ並び替え === */
+list.addEventListener("dragstart", (e) => {
+  dragIndex = Number(e.target.closest(".item").dataset.i);
+  e.target.classList.add("dragging");
+});
+
+list.addEventListener("dragend", (e) => {
+  e.target.classList.remove("dragging");
+});
+
+list.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  const target = e.target.closest(".item");
+  if (!target) return;
+
+  const targetIndex = Number(target.dataset.i);
+  if (dragIndex === targetIndex) return;
+
+  const dragged = images.splice(dragIndex, 1)[0];
+  images.splice(targetIndex, 0, dragged);
+  dragIndex = targetIndex;
+  renderList();
+});
+
+/* === 生成 === */
 generateBtn.onclick = async () => {
   const cols = Number(colsInput.value);
-  const rows = Math.ceil(images.length / cols);
+  const GAP = Number(gapInput.value);
 
+  const output = [];
+  images.forEach(img => {
+    if (!img.visible) return;
+    for (let i = 0; i < img.count; i++) {
+      output.push(img.url);
+    }
+  });
+
+  const rows = Math.ceil(output.length / cols);
   canvas.width = cols * (SIZE + GAP) - GAP;
   canvas.height = rows * (SIZE + GAP) - GAP;
-
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  for (let i = 0; i < images.length; i++) {
+  for (let i = 0; i < output.length; i++) {
     const img = new Image();
-    img.src = images[i].url;
+    img.src = output[i];
     await img.decode();
-
     const x = (i % cols) * (SIZE + GAP);
     const y = Math.floor(i / cols) * (SIZE + GAP);
     ctx.drawImage(img, x, y, SIZE, SIZE);
   }
+};
+
+/* === PNG保存 === */
+downloadBtn.onclick = () => {
+  const a = document.createElement("a");
+  a.href = canvas.toDataURL("image/png");
+  a.download = "image-list.png";
+  a.click();
 };
 </script>
 
