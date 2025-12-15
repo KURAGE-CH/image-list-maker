@@ -2,18 +2,12 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>画像一覧メーカー（横枚数指定）</title>
+  <title>画像一覧メーカー（横枚数指定・安定版）</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
   <style>
     body { font-family: sans-serif; padding: 20px; }
     .controls { margin-bottom: 20px; }
-
-    #error {
-      color: red;
-      margin-top: 10px;
-      display: none;
-    }
 
     #image-list {
       display: grid;
@@ -51,7 +45,7 @@
 </head>
 <body>
 
-<h1>画像一覧メーカー（横枚数指定）</h1>
+<h1>画像一覧メーカー（横枚数指定・安定版）</h1>
 
 <div class="controls">
   <input type="file" id="files" multiple accept="image/*"><br><br>
@@ -68,8 +62,6 @@
   <br><br>
   <button id="generate">一覧画像を生成</button>
   <button id="download">PNG保存</button>
-
-  <div id="error"></div>
 </div>
 
 <div id="image-list"></div>
@@ -84,23 +76,24 @@ const ctx = canvas.getContext("2d");
 const cwInput = document.getElementById("cw");
 const colsInput = document.getElementById("cols");
 const gapInput = document.getElementById("gap");
-const errorBox = document.getElementById("error");
 
 const generateBtn = document.getElementById("generate");
 const downloadBtn = document.getElementById("download");
 
-const MIN_HEIGHT = 80;
+const MIN_HEIGHT = 100;
 const MAX_HEIGHT = 800;
 
 let images = [];
 let dragIndex = null;
 
-/* === 画像追加 === */
+/* util */
+const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
+
+/* 画像追加 */
 filesInput.onchange = () => {
   for (const file of filesInput.files) {
     images.push({
       url: URL.createObjectURL(file),
-      visible: true,
       count: 1
     });
   }
@@ -108,7 +101,7 @@ filesInput.onchange = () => {
   filesInput.value = "";
 };
 
-/* === 編集一覧 === */
+/* 編集一覧 */
 function renderList() {
   list.innerHTML = "";
   images.forEach((img, i) => {
@@ -133,7 +126,7 @@ function renderList() {
   });
 }
 
-/* === 並び替え === */
+/* 並び替え */
 list.ondragover = (e) => {
   e.preventDefault();
   const item = e.target.closest(".item");
@@ -148,10 +141,8 @@ list.ondragover = (e) => {
   renderList();
 };
 
-/* === 生成処理 === */
+/* 生成 */
 generateBtn.onclick = async () => {
-  errorBox.style.display = "none";
-
   const CW = Number(cwInput.value);
   const COLS = Number(colsInput.value);
   const GAP = Number(gapInput.value);
@@ -162,15 +153,16 @@ generateBtn.onclick = async () => {
   });
 
   canvas.width = CW;
+  canvas.height = 1;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   let y = 0;
 
   for (let i = 0; i < expanded.length; i += COLS) {
-    const rowUrls = expanded.slice(i, i + COLS);
+    const urls = expanded.slice(i, i + COLS);
     const rowImgs = [];
 
-    for (const url of rowUrls) {
+    for (const url of urls) {
       const img = new Image();
       img.src = url;
       await img.decode();
@@ -181,19 +173,10 @@ generateBtn.onclick = async () => {
       (sum, img) => sum + img.width / img.height, 0
     );
 
-    const rowHeight =
+    let rowHeight =
       (CW - GAP * (rowImgs.length - 1)) / totalAspect;
 
-    if (
-      rowHeight <= 0 ||
-      rowHeight < MIN_HEIGHT ||
-      rowHeight > MAX_HEIGHT
-    ) {
-      errorBox.textContent =
-        "この設定では画像を配置できません（横枚数・間隔・幅を調整してください）";
-      errorBox.style.display = "block";
-      return;
-    }
+    rowHeight = clamp(rowHeight, MIN_HEIGHT, MAX_HEIGHT);
 
     let x = 0;
     rowImgs.forEach(img => {
@@ -208,7 +191,7 @@ generateBtn.onclick = async () => {
   canvas.height = y - GAP;
 };
 
-/* === PNG保存 === */
+/* PNG保存 */
 downloadBtn.onclick = () => {
   const a = document.createElement("a");
   a.href = canvas.toDataURL("image/png");
